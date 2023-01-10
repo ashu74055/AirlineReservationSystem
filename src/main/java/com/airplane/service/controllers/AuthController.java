@@ -67,11 +67,13 @@ public class AuthController {
         userPersonalDetail.setFirstName(user.getFirstName());
         userPersonalDetail.setLastName(user.getLastName());
         userPersonalDetail.setEmail(user.getEmail());
+        userPersonalDetail.setImageUrl("https://res.cloudinary.com/dzavgoc9w/image/upload/v1663592085/Images/Default_j3wvy8.png");
         userPersonalDetailsDAO.save(userPersonalDetail);
         final UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
 
         basicResponseDTO.setData(new RegisterResponseDTO(jwtUtil.generateToken(userDetails), user.getEmail(), user.getFirstName()));
         basicResponseDTO.setIsSuccess(true);
+        basicResponseDTO.setMessage("User Register Successfully");
         return new ResponseEntity<>(basicResponseDTO, HttpStatus.CREATED);
     }
 
@@ -87,12 +89,14 @@ public class AuthController {
         SignInResponseDTO basicResponseDTO = new SignInResponseDTO();
         Optional<User> _user = userDAO.findUserByEmail(email);
         if(_user.isEmpty()){
+            basicResponseDTO.setIsSuccess(false);
             basicResponseDTO.setMessage("User not found");
             return basicResponseDTO;
         }
         User user = _user.get();
-        if(!user.getIsActive()){
-            basicResponseDTO.setMessage("User not active");
+        if(!user.getIsActive()||user.getCount()>4){
+            basicResponseDTO.setIsSuccess(false);
+            basicResponseDTO.setMessage("User Account Is Blocked, Please Contact To Admin");
             return basicResponseDTO;
         }
 
@@ -104,6 +108,9 @@ public class AuthController {
                     )
             );
         } catch (BadCredentialsException e) {
+            user.setCount(user.getCount()+1);
+            userDAO.save(user);
+            basicResponseDTO.setIsSuccess(false);
             basicResponseDTO.setMessage("Credentials not matched");
             return basicResponseDTO;
         }
@@ -117,6 +124,7 @@ public class AuthController {
         signInDTO.setEmail(user.getEmail());
         basicResponseDTO.setData(signInDTO);
         basicResponseDTO.setIsSuccess(true);
+        basicResponseDTO.setMessage("Login Successfully");
         return basicResponseDTO;
     }
 

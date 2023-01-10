@@ -9,7 +9,10 @@ import com.airplane.service.models.FlightsDetail;
 import com.airplane.service.models.TicketDetail;
 import com.airplane.service.models.User;
 import com.airplane.service.models.UserPersonalDetail;
+import com.airplane.service.services.FileUploadStorage;
 import com.airplane.service.services.FilesStorageService;
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.modelmapper.ModelMapper;
@@ -23,10 +26,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.io.IOException;
+import java.util.*;
+
+import static com.cloudinary.utils.ObjectUtils.asMap;
+import static java.util.Collections.emptyMap;
 
 @RestController
 @CrossOrigin
@@ -56,26 +60,26 @@ public class CustomerController {
     @PostMapping("/SearchAndFilterFlights")
     public ResponseEntity<PaginationResponseDTO<List<FlightsDetail>>> searchAndFilterFlights(@RequestBody CustomerSearchDTO r){
         PaginationResponseDTO<List<FlightsDetail>> responseDTO = new PaginationResponseDTO<>();
-        PageRequest pageRequest = PageRequest.of(r.getPageNumber() -1, r.getNumberOfRecordPerPage());
-        Page<FlightsDetail> flightsDetailPage = flightDAO.findAll(pageRequest);
-        if(r.isSearch() && r.isFilter()){
-            if(r.getFilterOn().isPrice())
-                flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCaseOrderByPrice(r.getTo(), r.getDestination(), pageRequest);
-            if(r.getFilterOn().isTime())
-                flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCaseOrderByFlightTime(r.getTo(), r.getDestination(), pageRequest);
-            if(r.getFilterOn().isName())
-                flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCaseOrderByFlightName(r.getTo(), r.getDestination(), pageRequest);
-        } else if(r.isFilter()){
-            flightsDetailPage = flightDAO.findAll(pageRequest);
-        } else if(r.isSearch()){
-            flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCase(r.getTo(), r.getDestination(), pageRequest);
-        }
-        responseDTO.setMessage(responseDTO.getData().isEmpty() ? "No records" : "Records found");
-        responseDTO.setData(flightsDetailPage.toList());
-        responseDTO.setTotalRecords(flightsDetailPage.getTotalElements());
+        //PageRequest pageRequest = PageRequest.of(r.getPageNumber() -1, r.getNumberOfRecordPerPage());
+        List<FlightsDetail> flightsDetailPage = flightDAO.findAll();
+//        if(r.isSearch() && r.isFilter()){
+//            if(r.getFilterOn().isPrice())
+//                flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCaseOrderByPrice(r.getTo(), r.getDestination(), pageRequest);
+//            if(r.getFilterOn().isTime())
+//                flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCaseOrderByFlightTime(r.getTo(), r.getDestination(), pageRequest);
+//            if(r.getFilterOn().isName())
+//                flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCaseOrderByFlightName(r.getTo(), r.getDestination(), pageRequest);
+//        } else if(r.isFilter()){
+//            flightsDetailPage = flightDAO.findAll(pageRequest);
+//        } else if(r.isSearch()){
+//            flightsDetailPage = flightDAO.findAllByToLevelIgnoreCaseAndDestinationIgnoreCase(r.getTo(), r.getDestination(), pageRequest);
+//        }
+        responseDTO.setMessage(flightsDetailPage.stream().count()==0 ? "No records" : "Records found");
+        responseDTO.setData(flightsDetailPage);
+        responseDTO.setTotalRecords(flightsDetailPage.stream().count());
         responseDTO.setCurrentPage(r.getPageNumber());
         responseDTO.setIsSuccess(true);
-        responseDTO.setTotalPage(flightsDetailPage.getTotalPages());
+        responseDTO.setTotalPage((int)Math.ceil(flightsDetailPage.stream().count()/r.getNumberOfRecordPerPage()));
         return new  ResponseEntity(responseDTO, HttpStatus.OK);
     }
 
@@ -146,12 +150,40 @@ public class CustomerController {
 
     @Operation(security = @SecurityRequirement(name = "bearerAuth"))
     @PostMapping("/GetUserTickets")
-    public ResponseEntity<PaginationResponseDTO<List<TicketDetail>>> getUserTickets(@RequestParam GetUserTicketReqDTO r){
-        PaginationResponseDTO<List<TicketDetail>> responseDTO = new PaginationResponseDTO<>();
-        Page<TicketDetail> ticketDetailPage = ticketDetailDAO.findAllByUserID( r.getUserID(),
-                PageRequest.of(r.getPageNumber()-1, r.getNumberOfRecordPerPage()));
+    public ResponseEntity<PaginationResponseDTO<List<GetUserTicketsResponseDTO>>> getUserTickets(@RequestBody GetUserTicketReqDTO r){
+        PaginationResponseDTO<List<GetUserTicketsResponseDTO>> responseDTO = new PaginationResponseDTO<>();
+        List<GetUserTicketsResponseDTO> response = new ArrayList<>();
+        Page<TicketDetail> ticketDetailPage = null;
+        if(r.getUserID()==-1){
+            ticketDetailPage = ticketDetailDAO.findAll(
+                    PageRequest.of(r.getPageNumber() - 1, r.getNumberOfRecordPerPage()));
+        }else {
+            ticketDetailPage = ticketDetailDAO.findAllByUserID(r.getUserID(),
+                    PageRequest.of(r.getPageNumber() - 1, r.getNumberOfRecordPerPage()));
+        }
+        ticketDetailPage.forEach(X->{
+            GetUserTicketsResponseDTO data = new GetUserTicketsResponseDTO();
+            data.setTicketID(X.getTicketID());
+            data.setUserID(X.getUserID());
+            data.setFlightID(X.getFlightID());
+            FlightsDetail flightsDetail = flightDAO.getReferenceById(X.getFlightID());
+            data.setFlightName(flightsDetail.getFlightName());
+            data.setCompany(flightsDetail.getCompany());
+            data.setTo(flightsDetail.getToLevel());
+            //Destination, FlightDate, Time, PaymentType,CardNo, UPIID, Price, Status, SeatClass
+            data.setDestination(flightsDetail.getDestination());
+            data.setFlightDate(X.getFlightDate());
+            data.setTime(flightsDetail.getFlightTime());
+            data.setPaymentType(X.getPaymentType());
+            data.setCardNo(X.getCartNo());
+            data.setUPIID(X.getUpiid());
+            data.setPrice(X.getPrice());
+            data.setStatus(X.getStatus());
+            data.setSeatClass(X.getSeatClass());
+            response.add(data);
+        });
         responseDTO.setTotalPage(ticketDetailPage.getTotalPages());
-        responseDTO.setData(ticketDetailPage.toList());
+        responseDTO.setData(response);
         responseDTO.setTotalRecords(ticketDetailPage.getTotalElements());
         responseDTO.setCurrentPage(r.getPageNumber());
         responseDTO.setIsSuccess(true);
@@ -161,24 +193,52 @@ public class CustomerController {
 
     @Operation(security = @SecurityRequirement(name = "bearerAuth"))
     @PostMapping(value = "/UpdateImage", consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
-    public ResponseEntity<BasicResponseDTO<?>> updateImage(@ModelAttribute UpdateImageReqDTO r){
+    public ResponseEntity<BasicResponseDTO<?>> updateImage(@ModelAttribute UpdateImageReqDTO r) throws IOException {
         BasicResponseDTO<UserPersonalDetail> responseDTO = new BasicResponseDTO<>(true, "Image Upload Successfully", null);
-        Optional<UserPersonalDetail> _user = userPersonalDetailsDAO.findByUserID(r.getUserID());
-        if(_user.isPresent()){
-            Optional<String> fileName = filesStorageService.save(r.getFile());
-            if(fileName.isEmpty()){
-                responseDTO.setIsSuccess(false);
+        try {
+            UserPersonalDetail _user = userPersonalDetailsDAO.getReferenceById(r.getUserID());
+            if (_user != null) {
+                // Cloudinary Image Upload
+                // Account Configuration
+                Cloudinary cloudinary = new Cloudinary(ObjectUtils.asMap(
+                        "cloud_name", "dzavgoc9w",
+                        "api_key", "842688657531372",
+                        "api_secret", "-djtDm1NRXVtjZ3L-HGaLfYnNBw",
+                        "secure", true));
+                // Upload Image
+                Map uploadResult = cloudinary.uploader().upload(r.getFile().getBytes(), ObjectUtils.emptyMap());
+                //_user.setImageUrl(FileUploadStorage.uploadFile(r.getFile()));
+                // Update Image Url
+                _user.setImageUrl(uploadResult.get("url").toString());
+                userPersonalDetailsDAO.save(_user);
+                responseDTO.setIsSuccess(true);
                 responseDTO.setMessage("File upload issue");
-                return new  ResponseEntity(responseDTO, HttpStatus.OK);
+                return new ResponseEntity(responseDTO, HttpStatus.OK);
+            } else {
+                responseDTO.setMessage("user not found");
+                responseDTO.setIsSuccess(false);
+                return new ResponseEntity(responseDTO, HttpStatus.BAD_REQUEST);
             }
-            UserPersonalDetail userPersonalDetail = _user.get();
-            userPersonalDetail.setImageUrl(fileUrl+fileName.get());
-            userPersonalDetail.setPublicID(UUID.randomUUID().toString());
-            userPersonalDetailsDAO.save(userPersonalDetail);
-            return new  ResponseEntity(responseDTO, HttpStatus.OK);
+        }catch (Exception ex){
+            responseDTO.setIsSuccess(false);
+            responseDTO.setMessage("Exception Message : "+ex.getMessage());
+            return new ResponseEntity(responseDTO, HttpStatus.BAD_REQUEST);
         }
-        responseDTO.setMessage("user not found");
-        responseDTO.setIsSuccess(false);
-        return new  ResponseEntity(responseDTO, HttpStatus.OK);
+//        if(_user.isPresent()){
+//            //Optional<String> fileName = filesStorageService.save(r.getFile());
+//            String fileName = filesStorageService.uploadFile(r.getFile());
+//            if(fileName.isEmpty()){
+//
+//                responseDTO.setIsSuccess(false);
+//                responseDTO.setMessage("File upload issue");
+//                return new  ResponseEntity(responseDTO, HttpStatus.OK);
+//            }
+//            UserPersonalDetail userPersonalDetail = _user.get();
+//            userPersonalDetail.setImageUrl(fileUrl+fileName.get());
+//            userPersonalDetail.setPublicID(UUID.randomUUID().toString());
+//            userPersonalDetailsDAO.save(userPersonalDetail);
+//            return new  ResponseEntity(responseDTO, HttpStatus.OK);
+//        }
+
     }
 }

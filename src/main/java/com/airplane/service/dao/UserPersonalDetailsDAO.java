@@ -9,4 +9,6 @@ import java.util.Optional;
 @Repository
 public interface UserPersonalDetailsDAO extends JpaRepository<UserPersonalDetail, Long> {
     Optional<UserPersonalDetail> findByUserID(Long userId);
+    //UserPersonalDetail findByPersonalUserID(Long userId);
+
 }

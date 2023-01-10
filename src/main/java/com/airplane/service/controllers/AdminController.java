@@ -41,14 +41,22 @@ public class AdminController {
     @Operation(security = @SecurityRequirement(name = "bearerAuth"))
     @PutMapping("/ManupulateCustomerAccount")
     public ResponseEntity<BasicResponseDTO<?>> manupulateCustomerAccount(@RequestBody UserManipulateRequestDTO r){
-        BasicResponseDTO<?> responseDTO = new BasicResponseDTO<>(true, "Process completed", null);
+        String Message = "Successful";
+        BasicResponseDTO<?> responseDTO = new BasicResponseDTO<>(true, Message, null);
         Optional<User> _user = userDAO.findById(r.getUserID());
         if(_user.isPresent()){
             User user = _user.get();
             if(r.getBlock())
+            {
                 user.setIsActive(false);
-            if(r.getUnblock())
+                user.setCount(5);
+                responseDTO.setMessage("User Account Blocked");
+            }
+            if(r.getUnblock()) {
                 user.setIsActive(true);
+                user.setCount(0);
+                responseDTO.setMessage("User Account UnBlocked");
+            }
             userDAO.save(user);
             return new  ResponseEntity(responseDTO, HttpStatus.OK);
         }
